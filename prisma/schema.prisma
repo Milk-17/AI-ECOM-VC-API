@@ -1,0 +1,220 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------
+// 1. ตารางผู้ใช้งาน (User)
+// ------------------------------------------
+model User {
+  id               Int                   @id @default(autoincrement()) // รหัสผู้ใช้ (Auto ID)
+  email            String                @unique // อีเมล (ห้ามซ้ำ)
+  password         String? // รหัสผ่านมาตรฐาน (เป็น null ได้ถ้า login ผ่าน Google)
+  name             String? // ชื่อที่ใช้แสดงผล (Display Name)
+  picture          String? // URL รูปโปรไฟล์
+  role             String                @default("user") // สิทธิ์ผู้ใช้ (admin หรือ user)
+  enable           Boolean               @default(true) // สถานะบัญชี (true=ปกติ, false=โดนแบน/ปิด)
+  
+  // ความสัมพันธ์ (Relations)
+  addresses        Address[] // 1 User มีได้หลายที่อยู่
+  orders           Order[] // ประวัติคำสั่งซื้อ
+  carts            Cart[] // ตะกร้าสินค้า
+  
+  // Timestamps & Security
+  createdAt        DateTime              @default(now()) // วันที่สมัครสมาชิก
+  updatedAt        DateTime              @updatedAt // วันที่แก้ไขข้อมูลล่าสุด
+  resetToken       String? // Token สำหรับรีเซ็ตรหัสผ่าน (เก็บแบบ Hash)
+  resetTokenExpire DateTime? // เวลาหมดอายุของ Reset Token
+  
+  // Admin & Logs
+  adminLogs        AdminLog[] // Log การทำงาน (ถ้าเป็น Admin)
+  priceHistories   ProductPriceHistory[] // ประวัติการปรับราคา (ถ้าเป็นคนแก้)
+}
+
+// ------------------------------------------
+// 2. ตารางที่อยู่ (Address)
+// ------------------------------------------
+model Address {
+  id          Int      @id @default(autoincrement()) // รหัสที่อยู่
+  addrDetail  String // รายละเอียด (บ้านเลขที่, หมู่, ซอย, ถนน)
+  province    String // จังหวัด
+  district    String // อำเภอ/เขต
+  subDistrict String // ตำบล/แขวง
+  zipcode     String // รหัสไปรษณีย์
+  
+  // ข้อมูลผู้รับ
+  recipient   String? // ชื่อผู้รับของ (เผื่อส่งให้คนอื่น)
+  phone       String? // เบอร์โทรศัพท์สำหรับติดต่อส่งของ
+  isMain      Boolean  @default(false) // ตั้งเป็นที่อยู่หลักหรือไม่?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // เชื่อมโยงกับ User
+  userId      Int // รหัสเจ้าของที่อยู่
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ------------------------------------------
+// 3. ตารางสินค้า (Product)
+// ------------------------------------------
+model Product {
+  id          Int      @id @default(autoincrement()) // รหัสสินค้า
+  title       String // ชื่อสินค้า
+  description Json? // รายละเอียดสินค้า (เก็บแบบ JSON เพื่อความยืดหยุ่น)
+  price       Float // ราคาสินค้าปัจจุบัน
+  sold        Int      @default(0) // จำนวนที่ขายไปแล้ว (Sold Count)
+  quantity    Int // จำนวนสินค้าคงเหลือในสต็อก (Stock)
+  productUrl  String?          // URL path ไปยัง ProductDetailCard
+
+  // ความสัมพันธ์
+  orderItems  ProductOnOrder[] // รายการสินค้าในออเดอร์ต่างๆ
+  images      Image[] // รูปภาพสินค้า (มีได้หลายรูป)
+  cartItems   ProductOnCart[] // รายการสินค้าในตะกร้าลูกค้า
+  
+  createdAt   DateTime @default(now()) // วันที่ลงขาย
+  updatedAt   DateTime @updatedAt // วันที่แก้ไขล่าสุด
+
+  // หมวดหมู่
+  subCategory   SubCategory? @relation(fields: [subCategoryId], references: [id])
+  subCategoryId Int? // รหัสหมวดหมู่ย่อย
+
+  category   Category? @relation(fields: [categoryId], references: [id])
+  categoryId Int? // รหัสหมวดหมู่หลัก
+
+  // Logs
+  adminLogs      AdminLog[]            @relation("ProductAdminLogs")
+  priceHistories ProductPriceHistory[] // ประวัติการขึ้น/ลงราคา
+}
+
+// ------------------------------------------
+// 4. ตารางประวัติราคา (Price History)
+// ------------------------------------------
+model ProductPriceHistory {
+  id          Int      @id @default(autoincrement())
+  productId   Int // รหัสสินค้า
+  oldPrice    Float // ราคาเก่า
+  newPrice    Float // ราคาใหม่
+  changedById Int // รหัสคนแก้ (Admin คนไหนแก้)
+  changedAt   DateTime @default(now()) // แก้เมื่อไหร่
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  changedBy User    @relation(fields: [changedById], references: [id])
+}
+
+// ------------------------------------------
+// 5. ตารางคำสั่งซื้อ (Order)
+// ------------------------------------------
+model Order {
+  id              Int              @id @default(autoincrement()) // เลขที่ใบสั่งซื้อ
+  products        ProductOnOrder[] // รายการสินค้าที่สั่ง
+  cartTotal       Float // ราคารวมสินค้า (ไม่รวมค่าส่ง)
+  orderStatus     String           @default("Not Process") // สถานะการจัดส่ง (เช่น รอแพ็ค, ส่งแล้ว)
+  trackingNumber  String? // เลขพัสดุขนส่ง
+  createdAt       DateTime         @default(now()) // วันที่สั่งซื้อ
+  updatedAt       DateTime         @updatedAt // วันที่อัปเดตสถานะ
+  shippingAddress String?          @db.Text // ที่อยู่จัดส่ง (เก็บเป็น Text เพื่อบันทึกประวัติ ณ วันสั่ง)
+
+  orderedBy   User? @relation(fields: [orderedById], references: [id])
+  orderedById Int // รหัสคนสั่งซื้อ
+  
+  amount      Int // ยอดเงินสุทธิ (รวมค่าส่ง หรือยอดที่ตัดบัตรจริง)
+  status      String // สถานะการชำระเงิน (เช่น Paid, Unpaid)
+}
+
+// ------------------------------------------
+// 6. ตารางสินค้าในคำสั่งซื้อ (ProductOnOrder - Pivot Table)
+// ------------------------------------------
+model ProductOnOrder {
+  id        Int     @id @default(autoincrement())
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId Int // รหัสสินค้า
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId   Int // รหัสคำสั่งซื้อ
+  count     Int // จำนวนชิ้นที่สั่ง
+  price     Float // **สำคัญ** ราคาต่อชิ้น ณ วันที่กดสั่ง (เผื่อราคาเปลี่ยนในอนาคต)
+}
+
+// ------------------------------------------
+// 7. หมวดหมู่ (Category & SubCategory)
+// ------------------------------------------
+model Category {
+  id            Int           @id @default(autoincrement()) // รหัสหมวดหมู่หลัก
+  name          String // ชื่อหมวดหมู่ (เช่น เสื้อผ้า, อิเล็กทรอนิกส์)
+  products      Product[] // สินค้าในหมวดนี้
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  subCategories SubCategory[] // เชื่อมไปหาหมวดหมู่ย่อย
+}
+
+model SubCategory {
+  id         Int      @id @default(autoincrement()) // รหัสหมวดหมู่ย่อย
+  name       String // ชื่อหมวดหมู่ย่อย (เช่น เสื้อยืด, เมาส์)
+  categoryId Int // FK: รหัสหมวดหมู่หลัก
+  category   Category @relation(fields: [categoryId], references: [id])
+  products   Product[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ------------------------------------------
+// 8. ตะกร้าสินค้า (Cart & ProductOnCart)
+// ------------------------------------------
+model Cart {
+  id          Int             @id @default(autoincrement())
+  products    ProductOnCart[] // สินค้าในตะกร้า
+  cartTotal   Float // ราคารวมในตะกร้า (คำนวณไว้ก่อนสั่ง)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  orderedBy   User            @relation(fields: [orderedById], references: [id])
+  orderedById Int // เจ้าของตะกร้า
+}
+
+model ProductOnCart {
+  id        Int      @id @default(autoincrement())
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  cartId    Int // รหัสตะกร้า
+  product   Product? @relation(fields: [productId], references: [id])
+  productId Int // รหัสสินค้า
+  count     Int // จำนวนที่หยิบใส่ตะกร้า
+  price     Float // ราคา ณ ตอนหยิบใส่ตะกร้า
+}
+
+// ------------------------------------------
+// 9. รูปภาพ (Image - Cloudinary)
+// ------------------------------------------
+model Image {
+  id         Int      @id @default(autoincrement())
+  asset_id   String // รหัสอ้างอิงไฟล์จาก Cloud
+  public_id  String // ชื่อไฟล์สาธารณะบน Cloud (ใช้ตอนลบ)
+  url        String // ลิงก์รูปภาพ (HTTP)
+  secure_url String // ลิงก์รูปภาพ (HTTPS)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId Int // รูปนี้เป็นของสินค้าชิ้นไหน
+}
+
+// ------------------------------------------
+// 10. บันทึกการทำงานแอดมิน (AdminLog)
+// ------------------------------------------
+model AdminLog {
+  id        Int      @id @default(autoincrement())
+  adminId   Int // แอดมินคนไหนทำรายการ
+  action    String // ทำอะไร? (Create, Update, Delete)
+  productId Int? // ทำกับสินค้าชิ้นไหน (ถ้ามี)
+  message   String? // รายละเอียดเพิ่มเติม (Optional)
+  createdAt DateTime @default(now()) // ทำเมื่อไหร่
+
+  admin   User     @relation(fields: [adminId], references: [id])
+  product Product? @relation("ProductAdminLogs", fields: [productId], references: [id])
+}
