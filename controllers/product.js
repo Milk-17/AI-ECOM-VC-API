@@ -106,27 +106,21 @@ exports.list = async(req,res) =>{
 exports.read = async (req, res) => {
     try {
         const { id } = req.params;
-        // id ที่ส่งมาตอนนี้อาจจะเป็น "10" (ID) หรือ "iphone-15-pro" (Slug) ก็ได้
+        // id ที่ส่งมา = "1-cor-i9"
 
-        let product;
+        //  วิธีแก้: ใช้ parseInt เพื่อดึงเฉพาะตัวเลขข้างหน้า
+        // parseInt("1-cor-i9") จะได้เลข 1 ออกมา (มันจะหยุดอ่านเมื่อเจอตัวหนังสือ)
+        const productId = parseInt(id);
 
-        // 1. เช็คว่าเป็นตัวเลขไหม? ถ้าใช่ ให้ลองหาด้วย ID ก่อน
-        if (!isNaN(id)) {
-             product = await prisma.product.findUnique({
-                where: { id: Number(id) },
-                include: { category: true, subCategory: true, images: true }
-            });
-        }
+        const product = await prisma.product.findUnique({
+            where: { id: productId }, // ส่งเลข 1 ไปหาใน DB
+            include: {
+                category: true,
+                subCategory: true,
+                images: true
+            }
+        });
 
-        // 2. ถ้าหาด้วย ID ไม่เจอ (หรือ input ไม่ใช่ตัวเลข) ให้หาด้วย productUrl
-        if (!product) {
-            product = await prisma.product.findFirst({
-                where: { productUrl: id }, // หาจากช่อง productUrl
-                include: { category: true, subCategory: true, images: true }
-            });
-        }
-
-        // ถ้ายังไม่เจออีก แสดงว่าไม่มีสินค้านี้
         if (!product) {
             return res.status(404).json({ message: "Product not found" });
         }
@@ -135,10 +129,9 @@ exports.read = async (req, res) => {
 
     } catch (err) {
         console.log(err);
-        res.status(500).json({ message: "Read product failed" });
+        res.status(500).json({ message: "Server Error" });
     }
 };
-
 // ===================== UPDATE PRODUCT =====================
 exports.update = async (req, res) => {
     try {

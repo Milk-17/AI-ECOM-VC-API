@@ -19,7 +19,7 @@ const {
 
 const { adminCheck, authCheck } = require('../middlewares/authCheck');
 
-// Enpoint http://localhost:5001/api/product
+// Enpoint https://ai-ecom-vc-api.vercel.app/api/product
 router.post('/product', authCheck, adminCheck, create);
 router.get('/products/:count', list);
 router.get('/product/:id', read);
